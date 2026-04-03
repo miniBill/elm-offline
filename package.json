@@ -1,6 +1,9 @@
 {
-  "license": "BSD-3-Clause",
-  "devDependencies": {
-    "elm-pages": "^3.3.4"
-  }
+    "license": "BSD-3-Clause",
+    "scripts": {
+        "start": "elm-pages run src/ElmOffline.elm --output output --build build --debug"
+    },
+    "devDependencies": {
+        "elm-pages": "^3.3.4"
+    }
 }
