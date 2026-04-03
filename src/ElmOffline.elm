@@ -122,24 +122,8 @@ buildAction packages =
                         { filename = Path.path (packageName ++ "/" ++ packageVersion ++ "/endpoint.json")
                         , hash = hash
                         }
-                 -- |> BuildTask.toResult
-                 -- |> BuildTask.map (Result.mapError (\e -> ( packageName, packageVersion, e )))
                 )
             |> BuildTask.combineBy parallelism
         )
-    -- <| \results ->
     <| \files ->
-    let
-        -- ( files, errors ) =
-        --     Result.Extra.partition results
-        errorsContent =
-            -- errors
-            []
-                |> List.map
-                    (\( packageName, packageVersion, e ) ->
-                        packageName ++ "/" ++ packageVersion ++ " " ++ Debug.toString e
-                    )
-                |> String.join "\n"
-    in
-    Do.writeFile errorsContent <| \errFile ->
-    BuildTask.combine ({ filename = Path.path "errors.txt", hash = errFile } :: files)
+    BuildTask.combine files
