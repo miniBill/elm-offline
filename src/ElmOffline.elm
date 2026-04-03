@@ -73,14 +73,29 @@ programConfig =
 
 
 type alias Inputs =
-    Dict String (List String)
+    List ( String, String )
 
 
 getInputs : BackendTask FatalError Inputs
 getInputs =
-    Http.getJson "https://package.elm-lang.org/all-packages"
-        (Json.Decode.dict (Json.Decode.list Json.Decode.string))
+    -- 6557 is the 0.19 cutoff
+    Http.getJson "https://package.elm-lang.org/all-packages/since/6557"
+        (Json.Decode.list Json.Decode.string)
         |> BackendTask.allowFatal
+        |> BackendTask.andThen
+            (\strings ->
+                strings
+                    |> Result.Extra.combineMap
+                        (\string ->
+                            case String.split "@" string of
+                                [ packageName, packageVersion ] ->
+                                    Ok ( packageName, packageVersion )
+
+                                _ ->
+                                    Err (FatalError.fromString ("Invalid package name@version: " ++ string))
+                        )
+                    |> BackendTask.fromResult
+            )
 
 
 buildAction : Inputs -> BuildTask FileOrDirectory
@@ -88,14 +103,9 @@ buildAction packages =
     Do.jobs <| \parallelism ->
     BuildTask.do
         (packages
-            |> Dict.toList
-            |> List.concatMap
-                (\( packageName, packageVersions ) ->
-                    List.map (Tuple.pair packageName) packageVersions
-                )
             |> List.map
                 (\( packageName, packageVersion ) ->
-                    (BuildTask.do
+                    BuildTask.do
                         (Unsafe.downloadImmutable
                             (Url.Builder.crossOrigin
                                 "https://package.elm-lang.org"
@@ -107,31 +117,29 @@ buildAction packages =
                                 []
                             )
                         )
-                     <| \hash ->
-                     BuildTask.succeed
-                         { filename = Path.path (packageName ++ "/" ++ packageVersion ++ "/endpoint.json")
-                         , hash = hash
-                         }
-                    )
-                        |> BuildTask.toResult
-                        |> BuildTask.map
-                            (\res ->
-                                case res of
-                                    Ok _ ->
-                                        res
-
-                                    Err e ->
-                                        let
-                                            _ =
-                                                Debug.log "Error" e
-                                        in
-                                        res
-                            )
+                    <| \hash ->
+                    BuildTask.succeed
+                        { filename = Path.path (packageName ++ "/" ++ packageVersion ++ "/endpoint.json")
+                        , hash = hash
+                        }
+                 -- |> BuildTask.toResult
+                 -- |> BuildTask.map (Result.mapError (\e -> ( packageName, packageVersion, e )))
                 )
             |> BuildTask.combineBy parallelism
         )
+    -- <| \results ->
     <| \files ->
-    files
-        |> Result.Extra.partition
-        |> Tuple.first
-        |> BuildTask.combine
+    let
+        -- ( files, errors ) =
+        --     Result.Extra.partition results
+        errorsContent =
+            -- errors
+            []
+                |> List.map
+                    (\( packageName, packageVersion, e ) ->
+                        packageName ++ "/" ++ packageVersion ++ " " ++ Debug.toString e
+                    )
+                |> String.join "\n"
+    in
+    Do.writeFile errorsContent <| \errFile ->
+    BuildTask.combine ({ filename = Path.path "errors.txt", hash = errFile } :: files)
